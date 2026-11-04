@@ -65,6 +65,7 @@ void led_sequence_run(void) {
     for (uint8_t i = 0; i < m_num_leds; i++) {
         uint8_t count = m_blink_counts[i];
         if (count == 0) {
+            nrf_delay_ms(PAUSE_BETWEEN_LEDS_MS);
             continue;
         }
 
