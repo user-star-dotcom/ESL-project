@@ -30,9 +30,11 @@ SRC_FILES += \
   $(SDK_ROOT)/components/libraries/ringbuf/nrf_ringbuf.c \
   $(SDK_ROOT)/components/libraries/strerror/nrf_strerror.c \
   $(SDK_ROOT)/modules/nrfx/soc/nrfx_atomic.c \
+  $(PROJ_DIR)/src/main.c \
   $(PROJ_DIR)/src/led.c \
   $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
-  $(PROJ_DIR)/src/main.c
+  $(PROJ_DIR)/src/button.c \
+  
 
 # Include folders common to all targets
 INC_FOLDERS += \
@@ -162,7 +164,7 @@ $(DFU_PACKAGE): $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex
 	nrfutil pkg generate \
 	   --hw-version 52 \
 	   --application-version 1 \
-	   --sd-req 0xa9 \
+	   --sd-req 0x102 \
 	   --sd-id 0x102 \
 	   --application $< \
 	   --softdevice $(SDK_ROOT)/components/softdevice/s113/hex/s113_nrf52_7.2.0_softdevice.hex $@
