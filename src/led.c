@@ -1,4 +1,5 @@
 #include "led.h"
+#include "button.h"
 #include "nrf_delay.h"
 #include "nrf_gpio.h"
 
@@ -6,7 +7,6 @@
 #define BLINK_DELAY_MS        250
 #define PAUSE_BETWEEN_LEDS_MS 600
 
-// Аппаратные пины (настройте под схему вашей платы, без boards.h)
 #define PIN_LED_RED    NRF_GPIO_PIN_MAP(0, 8)
 #define PIN_LED_GREEN  NRF_GPIO_PIN_MAP(1, 9)
 #define PIN_LED_BLUE   NRF_GPIO_PIN_MAP(0, 12)
@@ -15,6 +15,8 @@ static led_color_t m_sequence_colors[MAX_SEQUENCE_LENGTH];
 static uint8_t     m_sequence_counts[MAX_SEQUENCE_LENGTH];
 static uint8_t     m_sequence_size = 0;
 static uint8_t     m_current_index = 0;
+static uint8_t     m_current_blink_cnt = 0;
+static bool        m_paused_on = false;
 
 static uint32_t get_pin_number(led_color_t color) {
     switch (color) {
@@ -25,29 +27,36 @@ static uint32_t get_pin_number(led_color_t color) {
     }
 }
 
+// Низкоуровневое включение светодиода (Active Low: 0 = ON)
+void led_on(led_color_t color) {
+    if (color < LED_COLOR_MAX) {
+        nrf_gpio_pin_clear(get_pin_number(color));
+    }
+}
+
+// Низкоуровневое выключение светодиода (Active Low: 1 = OFF)
+void led_off(led_color_t color) {
+    if (color < LED_COLOR_MAX) {
+        nrf_gpio_pin_set(get_pin_number(color));
+    }
+}
+
+static void led_all_off(void) {
+    led_off(LED_RED);
+    led_off(LED_GREEN);
+    led_off(LED_BLUE);
+}
+
 bool led_control_init(void) {
+    // 1. Сначала выключаем все (ставим 1), чтобы избежать вспышек
+    led_all_off();
+
+    // 2. Настраиваем пины как выходы
     nrf_gpio_cfg_output(PIN_LED_RED);
     nrf_gpio_cfg_output(PIN_LED_GREEN);
     nrf_gpio_cfg_output(PIN_LED_BLUE);
 
-    // Безопасное выключенное состояние (Active Low)
-    led_off(LED_RED);
-    led_off(LED_GREEN);
-    led_off(LED_BLUE);
-
     return true;
-}
-
-void led_on(led_color_t color) {
-    if (color < LED_COLOR_MAX) {
-        nrf_gpio_pin_clear(get_pin_number(color)); // Active Low
-    }
-}
-
-void led_off(led_color_t color) {
-    if (color < LED_COLOR_MAX) {
-        nrf_gpio_pin_set(get_pin_number(color));   // Active Low
-    }
 }
 
 void led_toggle(led_color_t color) {
@@ -67,22 +76,53 @@ bool led_sequence_init(const led_color_t *colors, const uint8_t *counts, uint8_t
         m_sequence_counts[i] = counts[i];
     }
     m_current_index = 0;
+    m_current_blink_cnt = 0;
+    m_paused_on = false;
+    
+    led_all_off();
     return true;
 }
 
 void led_sequence_reset(void) {
     m_current_index = 0;
+    m_current_blink_cnt = 0;
+    m_paused_on = false;
+    led_all_off();
 }
-// Добавляем статическую переменную для хранения текущего количества миганий конкретного цвета
-//static uint8_t m_current_index     = 0; // Индекс текущего цвета в массиве
-static uint8_t m_current_blink_cnt = 0; // Сколько раз уже мигнул текущий цвет (cnt)
 
-bool led_sequence_step_next(void) {
+bool led_sequence_step_next(bool is_button_pressed) {
     if (m_sequence_size == 0) {
         return true;
     }
 
-    // Защита: если у текущего цвета 0 миганий, пропускаем его и сбрасываем счетчик
+    led_color_t color = m_sequence_colors[m_current_index];
+
+    if (m_paused_on) {
+        if (is_button_pressed) {
+            led_all_off();
+            m_paused_on = false;
+            
+            m_current_blink_cnt++;
+            if (m_current_blink_cnt >= m_sequence_counts[m_current_index]) {
+                m_current_blink_cnt = 0;
+                m_current_index++;
+                if (m_current_index >= m_sequence_size) {
+                    m_current_index = 0;
+                    return true;
+                }
+            }
+            nrf_delay_ms(PAUSE_BETWEEN_LEDS_MS);
+        } else {
+            led_on(color);
+        }
+        return false;
+    }
+
+    if (!is_button_pressed) {
+        led_all_off();
+        return false;
+    }
+
     while (m_sequence_counts[m_current_index] == 0) {
         m_current_index++;
         if (m_current_index >= m_sequence_size) {
@@ -91,28 +131,38 @@ bool led_sequence_step_next(void) {
         m_current_blink_cnt = 0;
     }
 
-    led_color_t color = m_sequence_colors[m_current_index];
+    color = m_sequence_colors[m_current_index];
     uint8_t target_count = m_sequence_counts[m_current_index];
 
-    // Выполняем ровно ОДИН blink за одно нажатие / один вызов функции
+
+    led_all_off();
     led_on(color);
-    nrf_delay_ms(BLINK_DELAY_MS);
+
+    uint32_t elapsed = 0;
+    while (elapsed < BLINK_DELAY_MS) {
+        nrf_delay_ms(10);
+        elapsed += 10;
+        
+        if (!button_is_pressed()) {
+            m_paused_on = true;
+            led_on(color);
+            return false;
+        }
+    }
+
+
     led_off(color);
     nrf_delay_ms(BLINK_DELAY_MS);
 
-    // Увеличиваем счетчик выполненных миганий для этого цвета (cnt++)
     m_current_blink_cnt++;
-
-    // Проверяем: если отмигали нужное количество раз (достигли count)
     if (m_current_blink_cnt >= target_count) {
-        m_current_blink_cnt = 0; // Сбрасываем счетчик для следующего цвета
-        m_current_index++;       // Переходим к следующему цвету в цепочке
-        
-        // Закольцовываем всю последовательность, если дошли до конца
+        m_current_blink_cnt = 0;
+        m_current_index++;
         if (m_current_index >= m_sequence_size) {
             m_current_index = 0;
-            return true; // Вся последовательность завершена один раз
+            return true;
         }
+        nrf_delay_ms(PAUSE_BETWEEN_LEDS_MS);
     }
 
     return false;
