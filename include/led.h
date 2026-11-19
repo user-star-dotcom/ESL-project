@@ -1,9 +1,18 @@
+/**
+ * @file led.h
+ *
+ * LED HAL for the on-board RGB LED.
+ *
+ * The LEDs are driven by a hardware PWM peripheral (nrfx_pwm): the driver
+ * plays an endless sequence from a RAM buffer, so the duty cycle of any
+ * channel can be changed at any time by a simple RAM write.
+ */
 #ifndef LED_H
 #define LED_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
+/** LED colors. The enum order is also the PWM channel order (see led.c). */
 typedef enum {
     LED_RED = 0,
     LED_GREEN,
@@ -11,19 +20,23 @@ typedef enum {
     LED_COLOR_MAX
 } led_color_t;
 
-bool led_control_init(void);
-bool led_sequence_init(const led_color_t *colors, const uint8_t *counts, uint8_t size);
-void led_sequence_reset(void);
+/**
+ * @brief Configure the PWM peripheral and start the endless playback.
+ *
+ * All channels start at 0 % (LEDs off).
+ */
+void led_init(void);
 
 /**
- * @brief Выполнить шаг последовательности с учетом состояния кнопки
- * @param is_button_pressed Текущее состояние кнопки (нажата/отпущена)
- * @return true, если цикл завершен
+ * @brief Set the duty cycle of one LED.
+ *
+ * @param color   LED to update.
+ * @param percent Duty cycle 0..100; 0 means "off", 100 means full brightness.
+ *                Values above 100 are clamped.
  */
-bool led_sequence_step_next(bool is_button_pressed);
+void led_set_duty(led_color_t color, uint8_t percent);
 
-void led_on(led_color_t color);
-void led_off(led_color_t color);
-void led_toggle(led_color_t color);
+/** @brief Set the duty cycle of every LED to 0 (all off). */
+void led_all_off(void);
 
-#endif // LED_H
+#endif /* LED_H */
