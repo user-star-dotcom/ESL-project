@@ -917,9 +917,11 @@
 #endif
 
 // <e> GPIOTE_ENABLED - nrf_drv_gpiote - GPIOTE peripheral driver - legacy layer
+// <i> Set to 1: apply_old_config.h maps this flag onto NRFX_GPIOTE_ENABLED,
+// <i> so the legacy flag is the one that actually enables the driver.
 //==========================================================
 #ifndef GPIOTE_ENABLED
-#define GPIOTE_ENABLED 0
+#define GPIOTE_ENABLED 1
 #endif
 // <o> GPIOTE_CONFIG_NUM_OF_LOW_POWER_EVENTS - Number of lower power input pins 
 #ifndef GPIOTE_CONFIG_NUM_OF_LOW_POWER_EVENTS
@@ -4387,9 +4389,11 @@
 #endif
 
 // <e> PWM_ENABLED - nrf_drv_pwm - PWM peripheral driver - legacy layer
+// <i> Set to 1: apply_old_config.h maps this flag onto NRFX_PWM_ENABLED,
+// <i> so the legacy flag is the one that actually enables the driver.
 //==========================================================
 #ifndef PWM_ENABLED
-#define PWM_ENABLED 0
+#define PWM_ENABLED 1
 #endif
 // <o> PWM_DEFAULT_CONFIG_OUT0_PIN - Out0 pin  <0-31> 
 
