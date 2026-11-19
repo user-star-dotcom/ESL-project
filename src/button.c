@@ -1,9 +1,3 @@
-/**
- * @file button.c
- *
- * Button driver implementation: GPIOTE edge events + timestamp-based edge
- * debounce + double-click recognition, and a tick-based level debouncer.
- */
 #include "button.h"
 
 #include "board_config.h"
@@ -13,22 +7,34 @@
 #include "nrfx_gpiote.h"
 
 static button_double_click_handler_t m_double_click_handler;
+static button_single_click_handler_t m_single_click_handler;
 
-/* Debounced level, maintained by button_update() from the app tick. */
+APP_TIMER_DEF(m_click_timer);
+
+
 static bool    m_pressed;
 static uint8_t m_unstable_ticks;
 
-/* Double-click recognition state, maintained in GPIOTE interrupt context. */
 static bool     m_have_prev_press;
 static uint32_t m_last_press_cnt;
 
-/* Edge guard state for the GPIOTE debounce. */
 static bool     m_have_edge;
 static uint32_t m_last_edge_cnt;
 
 static bool pin_is_pressed_raw(void)
 {
     return nrf_gpio_pin_read(BUTTON_PIN) == BUTTON_PRESSED_LEVEL;
+}
+
+static void click_timeout_handler(void * p_context)
+{
+    (void)p_context;
+
+    m_have_prev_press = false;
+
+    if (!pin_is_pressed_raw() && m_single_click_handler != NULL) {
+        m_single_click_handler();
+    }
 }
 
 static void on_press_edge(void)
@@ -38,13 +44,19 @@ static void on_press_edge(void)
     if (m_have_prev_press &&
         app_timer_cnt_diff_compute(now, m_last_press_cnt) <
             APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS)) {
+
+        (void)app_timer_stop(m_click_timer);
+        m_have_prev_press = false;
+
         if (m_double_click_handler != NULL) {
             m_double_click_handler();
         }
+        return;
     }
 
     m_have_prev_press = true;
     m_last_press_cnt  = now;
+    (void)app_timer_start(m_click_timer, APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS), NULL);
 }
 
 static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
@@ -52,8 +64,6 @@ static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
     (void)pin;
     (void)action;
 
-    /* Bounce guard: swallow any event within BUTTON_DEBOUNCE_MS of the last
-     * edge. Covers press bounce as well as the spikes a release produces. */
     uint32_t now = app_timer_cnt_get();
     if (m_have_edge &&
         app_timer_cnt_diff_compute(now, m_last_edge_cnt) <
@@ -63,7 +73,6 @@ static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
     m_last_edge_cnt = now;
     m_have_edge     = true;
 
-    /* TOGGLE sense fires on release too - only press edges count. */
     if (pin_is_pressed_raw()) {
         on_press_edge();
     }
@@ -80,6 +89,10 @@ void button_init(void)
 
     APP_ERROR_CHECK(nrfx_gpiote_in_init(BUTTON_PIN, &cfg, gpiote_handler));
     nrfx_gpiote_in_event_enable(BUTTON_PIN, true);
+
+    APP_ERROR_CHECK(app_timer_create(&m_click_timer,
+                                     APP_TIMER_MODE_SINGLE_SHOT,
+                                     click_timeout_handler));
 
     m_pressed = pin_is_pressed_raw();
 }
@@ -105,4 +118,9 @@ bool button_is_pressed(void)
 void button_set_double_click_handler(button_double_click_handler_t handler)
 {
     m_double_click_handler = handler;
+}
+
+void button_set_single_click_handler(button_single_click_handler_t handler)
+{
+    m_single_click_handler = handler;
 }
