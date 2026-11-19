@@ -1,15 +1,108 @@
+/**
+ * @file button.c
+ *
+ * Button driver implementation: GPIOTE edge events + timestamp-based edge
+ * debounce + double-click recognition, and a tick-based level debouncer.
+ */
 #include "button.h"
+
+#include "board_config.h"
+#include "app_error.h"
+#include "app_timer.h"
 #include "nrf_gpio.h"
+#include "nrfx_gpiote.h"
 
-// Пин кнопки (уточните по схеме вашей платы, например 13)
-#define PIN_BUTTON NRF_GPIO_PIN_MAP(1, 6)
+static button_double_click_handler_t m_double_click_handler;
 
-void button_init(void) {
-    // Настраиваем пин на вход с подтяжкой к питанию (Pull-up)
-    nrf_gpio_cfg_input(PIN_BUTTON, NRF_GPIO_PIN_PULLUP);
+/* Debounced level, maintained by button_update() from the app tick. */
+static bool    m_pressed;
+static uint8_t m_unstable_ticks;
+
+/* Double-click recognition state, maintained in GPIOTE interrupt context. */
+static bool     m_have_prev_press;
+static uint32_t m_last_press_cnt;
+
+/* Edge guard state for the GPIOTE debounce. */
+static bool     m_have_edge;
+static uint32_t m_last_edge_cnt;
+
+static bool pin_is_pressed_raw(void)
+{
+    return nrf_gpio_pin_read(BUTTON_PIN) == BUTTON_PRESSED_LEVEL;
 }
 
-bool button_is_pressed(void) {
-    // При Pull-up нажатие дает уровень LOW (0)
-    return (nrf_gpio_pin_read(PIN_BUTTON) == 0);
+static void on_press_edge(void)
+{
+    uint32_t now = app_timer_cnt_get();
+
+    if (m_have_prev_press &&
+        app_timer_cnt_diff_compute(now, m_last_press_cnt) <
+            APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS)) {
+        if (m_double_click_handler != NULL) {
+            m_double_click_handler();
+        }
+    }
+
+    m_have_prev_press = true;
+    m_last_press_cnt  = now;
+}
+
+static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+{
+    (void)pin;
+    (void)action;
+
+    /* Bounce guard: swallow any event within BUTTON_DEBOUNCE_MS of the last
+     * edge. Covers press bounce as well as the spikes a release produces. */
+    uint32_t now = app_timer_cnt_get();
+    if (m_have_edge &&
+        app_timer_cnt_diff_compute(now, m_last_edge_cnt) <
+            APP_TIMER_TICKS(BUTTON_DEBOUNCE_MS)) {
+        return;
+    }
+    m_last_edge_cnt = now;
+    m_have_edge     = true;
+
+    /* TOGGLE sense fires on release too - only press edges count. */
+    if (pin_is_pressed_raw()) {
+        on_press_edge();
+    }
+}
+
+void button_init(void)
+{
+    if (!nrfx_gpiote_is_init()) {
+        APP_ERROR_CHECK(nrfx_gpiote_init());
+    }
+
+    nrfx_gpiote_in_config_t cfg = NRFX_GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+    cfg.pull = NRF_GPIO_PIN_PULLUP;
+
+    APP_ERROR_CHECK(nrfx_gpiote_in_init(BUTTON_PIN, &cfg, gpiote_handler));
+    nrfx_gpiote_in_event_enable(BUTTON_PIN, true);
+
+    m_pressed = pin_is_pressed_raw();
+}
+
+void button_update(void)
+{
+    if (pin_is_pressed_raw() == m_pressed) {
+        m_unstable_ticks = 0;
+        return;
+    }
+
+    if (++m_unstable_ticks >= BUTTON_DEBOUNCE_TICKS) {
+        m_pressed        = pin_is_pressed_raw();
+        m_unstable_ticks = 0;
+    }
+}
+
+bool button_is_pressed(void)
+{
+    return m_pressed;
+}
+
+void button_set_double_click_handler(button_double_click_handler_t handler)
+{
+    m_double_click_handler = handler;
 }
