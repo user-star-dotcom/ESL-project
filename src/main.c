@@ -27,12 +27,10 @@
 #include "led.h"
 #include "sequence.h"
 
-/* Device ID #7206 - same interpretation as in the previous workshops:
- * RED 7 breaths -> BLUE 2 -> RED 0 (silence marker) -> GREEN 6, then loop. */
 static sequence_step_t const m_device_sequence[] = {
-    {LED_RED,   7},
-    {LED_BLUE,  2},
-    {LED_RED,   0},     /* '0' digit: rendered as a silence marker */
+    {LED_RED, 7},
+    {LED_BLUE, 2},
+    {LED_RED, 0}, 
     {LED_GREEN, 6},
 };
 
@@ -45,45 +43,46 @@ static void tick_handler(void * p_context)
     button_update();
     sequence_tick(button_is_pressed());
 
-    /* Low-rate heartbeat. Logs are only transmitted while a terminal has the
-     * COM port open (see nrf_log_backend_usb.c), so a periodic message makes
-     * the log pipeline observable at any time - same idea as the "Iter %d"
-     * loop in examples/peripheral/dongle_logs. */
-    static uint16_t heartbeat;
-    if (++heartbeat >= HEARTBEAT_TICKS) {
-        heartbeat = 0;
-        NRF_LOG_INFO("Heartbeat: sequence running %u", (unsigned)sequence_is_running());
+    static uint16_t beat;
+    if (++beat >= BEAT_TICKS) {
+        beat = 0;
+        NRF_LOG_INFO("State: sequence running %u", (unsigned)sequence_is_running());
     }
 }
 
 static void on_button_double_click(void)
 {
     sequence_toggle_running();
-    NRF_LOG_INFO(sequence_is_running() ?
-                 "Double click: sequence started" :
-                 "Double click: sequence frozen");
+
+    if (sequence_is_running()) {
+        NRF_LOG_INFO("Double click: sequence started");
+        sequence_log_current_step();
+    } else {
+        NRF_LOG_INFO("Double click: sequence frozen");
+    }
+}
+
+static void on_button_single_click(void)
+{
+    NRF_LOG_INFO("Single click: sequence running %u", (unsigned)sequence_is_running());
 }
 
 static void clocks_start(void)
 {
-    /* nrf_drv_clock must be initialized before any request; the USB log
-     * backend does the same dance, both are idempotent. */
+
     if (!nrf_drv_clock_init_check()) {
         APP_ERROR_CHECK(nrf_drv_clock_init());
     }
 
-    /* LFCLK is required by app_timer (RTC1) and by the USB log backend. */
+
     nrf_drv_clock_lfclk_request(NULL);
     while (!nrf_drv_clock_lfclk_is_running()) {
-        /* wait until the low frequency clock starts */
     }
 }
 
 static void logs_init(void)
 {
     APP_ERROR_CHECK(NRF_LOG_INIT(NULL));
-    /* With LOG_BACKEND_USB_INIT_STACK=1 this also initializes the USB stack,
-     * registers the CDC ACM class and waits until USBD is started. */
     NRF_LOG_DEFAULT_BACKENDS_INIT();
 }
 
@@ -96,13 +95,11 @@ int main(void)
     APP_ERROR_CHECK(app_timer_create(&m_tick_timer, APP_TIMER_MODE_REPEATED, tick_handler));
     APP_ERROR_CHECK(app_timer_start(m_tick_timer, APP_TIMER_TICKS(APP_TICK_MS), NULL));
 
-    //
-    NRF_LOG_INFO("hi");
-    //
-
     led_init();
     button_init();
     button_set_double_click_handler(on_button_double_click);
+    button_set_single_click_handler(on_button_single_click);
+
     sequence_init(m_device_sequence,
                   sizeof(m_device_sequence) / sizeof(m_device_sequence[0]));
 

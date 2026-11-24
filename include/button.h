@@ -2,16 +2,20 @@
 #define BUTTON_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
-/**
- * @brief Инициализация пина кнопки
- */
+typedef void (* button_double_click_handler_t)(void);
+
+typedef void (* button_single_click_handler_t)(void);
+
 void button_init(void);
 
-/**
- * @brief Проверка состояния нажатия кнопки
- * @return true, если кнопка нажата, иначе false
- */
+void button_update(void);
+
 bool button_is_pressed(void);
 
-#endif // BUTTON_H
+void button_set_double_click_handler(button_double_click_handler_t handler);
+
+void button_set_single_click_handler(button_single_click_handler_t handler);
+
+#endif /* BUTTON_H */
