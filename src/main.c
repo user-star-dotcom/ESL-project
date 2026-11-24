@@ -1,16 +1,3 @@
-/**
- * @file main.c
- *
- * ESL project - Workshop: PWM breathing sequence with button gating.
- *
- * Composition root only: brings up clocks/logging/timers and wires the
- * modules together. All business logic lives in the modules:
- *
- *   app_timer 10 ms tick -> button_update() + sequence_tick(button state)
- *                           -> led_set_duty() -> PWM (nrfx_pwm)
- *   GPIOTE double-click  -> button callback -> sequence_toggle_running()
- *   main loop            -> USB CDC log pumping
- */
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -25,86 +12,131 @@
 #include "board_config.h"
 #include "button.h"
 #include "led.h"
-#include "sequence.h"
+#include "hsv.h"
 
-static sequence_step_t const m_device_sequence[] = {
-    {LED_RED, 7},
-    {LED_BLUE, 2},
-    {LED_RED, 0}, 
-    {LED_GREEN, 6},
-};
-
+//new implementation:
+typedef enum {
+    MODE_NONE = 0,   /* нет ввода: LED1 выключена                 */
+    MODE_HUE,        /* регулировка тона: LED1 мигает медленно    */
+    MODE_SAT,        /* регулировка насыщенности: LED1 мигает     */
+    MODE_VAL,        /* регулировка яркости: LED1 горит постоянно */
+    MODE_COUNT
+} input_mode_t;
+ 
+static input_mode_t m_mode = MODE_NONE;
+ 
 APP_TIMER_DEF(m_tick_timer);
-
+ 
+static hsv_component_t mode_to_component(input_mode_t mode)
+{
+    switch (mode) {
+    case MODE_HUE: return HSV_HUE;
+    case MODE_SAT: return HSV_SAT;
+    case MODE_VAL: return HSV_VAL;
+    default:       return HSV_COMP_COUNT;   /* MODE_NONE */
+    }
+}
+//1.2
+/* Индикация режима на LED1: выкл / 1 Гц / 5 Гц / постоянно */
+static void mode_led_update(void)
+{
+    static uint16_t blink_cnt;
+ 
+    switch (m_mode) {
+    case MODE_NONE:
+        led_mode_set(false);
+        blink_cnt = 0;
+        break;
+ 
+    case MODE_VAL:
+        led_mode_set(true);
+        blink_cnt = 0;
+        break;
+ 
+    case MODE_HUE:
+        led_mode_set(blink_cnt < BLINK_SLOW_HALF_TICKS);
+        if (++blink_cnt >= 2 * BLINK_SLOW_HALF_TICKS) {
+            blink_cnt = 0;
+        }
+        break;
+ 
+    case MODE_SAT:
+        led_mode_set(blink_cnt < BLINK_FAST_HALF_TICKS);
+        if (++blink_cnt >= 2 * BLINK_FAST_HALF_TICKS) {
+            blink_cnt = 0;
+        }
+        break;
+ 
+    default:
+        break;
+    }
+}
+//2
 static void tick_handler(void * p_context)
 {
     (void)p_context;
-
+ 
     button_update();
-    sequence_tick(button_is_pressed());
-
-    static uint16_t beat;
-    if (++beat >= BEAT_TICKS) {
-        beat = 0;
-        NRF_LOG_INFO("State: sequence running %u", (unsigned)sequence_is_running());
+ 
+    hsv_component_t comp = mode_to_component(m_mode);
+    if (comp != HSV_COMP_COUNT) {
+        hsv_ramp(comp, button_is_pressed());
     }
+    hsv_apply();
+ 
+    mode_led_update();
 }
 
 static void on_button_double_click(void)
 {
-    sequence_toggle_running();
-
-    if (sequence_is_running()) {
-        NRF_LOG_INFO("Double click: sequence started");
-        sequence_log_current_step();
-    } else {
-        NRF_LOG_INFO("Double click: sequence frozen");
-    }
+    m_mode = (input_mode_t)((m_mode + 1) % MODE_COUNT);
+ 
+    static char * const mode_names[] = {
+        "none", "hue", "saturation", "value",
+    };
+    NRF_LOG_INFO("Input mode: %s", NRF_LOG_PUSH(mode_names[m_mode]));
 }
+//end of new implementation
 
-static void on_button_single_click(void)
+static void clocks_start(void)//нужно
 {
-    NRF_LOG_INFO("Single click: sequence running %u", (unsigned)sequence_is_running());
-}
-
-static void clocks_start(void)
-{
-
     if (!nrf_drv_clock_init_check()) {
         APP_ERROR_CHECK(nrf_drv_clock_init());
     }
-
 
     nrf_drv_clock_lfclk_request(NULL);
     while (!nrf_drv_clock_lfclk_is_running()) {
     }
 }
 
-static void logs_init(void)
+static void logs_init(void)//нужно
 {
     APP_ERROR_CHECK(NRF_LOG_INIT(NULL));
     NRF_LOG_DEFAULT_BACKENDS_INIT();
 }
 
-int main(void)
+int main(void)//new main
 {
     clocks_start();
     logs_init();
-
+ 
     APP_ERROR_CHECK(app_timer_init());
-    APP_ERROR_CHECK(app_timer_create(&m_tick_timer, APP_TIMER_MODE_REPEATED, tick_handler));
-    APP_ERROR_CHECK(app_timer_start(m_tick_timer, APP_TIMER_TICKS(APP_TICK_MS), NULL));
-
+    APP_ERROR_CHECK(app_timer_create(&m_tick_timer,
+                                     APP_TIMER_MODE_REPEATED,
+                                     tick_handler));
+    APP_ERROR_CHECK(app_timer_start(m_tick_timer,
+                                    APP_TIMER_TICKS(APP_TICK_MS),
+                                    NULL));
+ 
     led_init();
+    led_mode_init();
     button_init();
     button_set_double_click_handler(on_button_double_click);
-    button_set_single_click_handler(on_button_single_click);
-
-    sequence_init(m_device_sequence,
-                  sizeof(m_device_sequence) / sizeof(m_device_sequence[0]));
-
-    NRF_LOG_INFO("ESL PWM project started (device ID %s)", NRF_LOG_PUSH(DEVICE_ID_STRING));
-
+    hsv_init();
+ 
+    NRF_LOG_INFO("ESL HSV project started (device ID %s)",
+                 NRF_LOG_PUSH(DEVICE_ID_STRING));
+ 
     for (;;) {
         LOG_BACKEND_USB_PROCESS();
         NRF_LOG_PROCESS();
