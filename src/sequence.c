@@ -7,6 +7,7 @@ typedef enum {
     PHASE_BREATH,
     PHASE_STEP_PAUSE,
     PHASE_ZERO_PAUSE,
+
 } sequence_phase_t;
 
 static sequence_step_t const * m_steps;

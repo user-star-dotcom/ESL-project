@@ -1,3 +1,16 @@
+/**
+ * @file main.c
+ *
+ * ESL project - Workshop: PWM breathing sequence with button gating.
+ *
+ * Composition root only: brings up clocks/logging/timers and wires the
+ * modules together. All business logic lives in the modules:
+ *
+ *   app_timer 10 ms tick -> button_update() + sequence_tick(button state)
+ *                           -> led_set_duty() -> PWM (nrfx_pwm)
+ *   GPIOTE double-click  -> button callback -> sequence_toggle_running()
+ *   main loop            -> USB CDC log pumping
+ */
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -13,7 +26,6 @@
 #include "button.h"
 #include "led.h"
 #include "sequence.h"
-
 
 static sequence_step_t const m_device_sequence[] = {
     {LED_RED, 7},
@@ -41,6 +53,7 @@ static void tick_handler(void * p_context)
 static void on_button_double_click(void)
 {
     sequence_toggle_running();
+
     if (sequence_is_running()) {
         NRF_LOG_INFO("Double click: sequence started");
         sequence_log_current_step();
@@ -56,9 +69,11 @@ static void on_button_single_click(void)
 
 static void clocks_start(void)
 {
+
     if (!nrf_drv_clock_init_check()) {
         APP_ERROR_CHECK(nrf_drv_clock_init());
     }
+
 
     nrf_drv_clock_lfclk_request(NULL);
     while (!nrf_drv_clock_lfclk_is_running()) {
@@ -84,6 +99,7 @@ int main(void)
     button_init();
     button_set_double_click_handler(on_button_double_click);
     button_set_single_click_handler(on_button_single_click);
+
     sequence_init(m_device_sequence,
                   sizeof(m_device_sequence) / sizeof(m_device_sequence[0]));
 
