@@ -9,54 +9,56 @@
 static button_double_click_handler_t m_double_click_handler;
 static button_single_click_handler_t m_single_click_handler;
 
-APP_TIMER_DEF(m_click_timer);
+APP_TIMER_DEF(m_debounce_timer);
+APP_TIMER_DEF(m_click_timer); //for second click
 
-
-static bool    m_pressed;
-static uint8_t m_unstable_ticks;
-
-static bool     m_have_prev_press;
-static uint32_t m_last_press_cnt;
-
-static bool     m_have_edge;
-static uint32_t m_last_edge_cnt;
+static bool m_pressed;
+static bool m_wait_second_click;
 
 static bool pin_is_pressed_raw(void)
 {
     return nrf_gpio_pin_read(BUTTON_PIN) == BUTTON_PRESSED_LEVEL;
 }
 
-static void click_timeout_handler(void * p_context)
+static void debounce_timeout_handler(void * p_context)
 {
     (void)p_context;
 
-    m_have_prev_press = false;
-
-    if (!pin_is_pressed_raw() && m_single_click_handler != NULL) {
-        m_single_click_handler();
+    bool pressed = pin_is_pressed_raw();
+    if (pressed == m_pressed) {
+        return;//if state of btn didn`t change
     }
-}
+    m_pressed = pressed;
 
-static void on_press_edge(void)
-{
-    uint32_t now = app_timer_cnt_get();
+    if (!pressed) {
+        return;
+    }
 
-    if (m_have_prev_press &&
-        app_timer_cnt_diff_compute(now, m_last_press_cnt) <
-            APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS)) {
-
+    if (m_wait_second_click) {
+        m_wait_second_click = false;
         (void)app_timer_stop(m_click_timer);
-        m_have_prev_press = false;
 
-        if (m_double_click_handler != NULL) {
+        if (m_double_click_handler != NULL) {//<--------------------------------------??
             m_double_click_handler();
         }
         return;
     }
 
-    m_have_prev_press = true;
-    m_last_press_cnt  = now;
-    (void)app_timer_start(m_click_timer, APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS), NULL);
+    //preparing for the second:
+    m_wait_second_click = true;
+    (void)app_timer_start(m_click_timer,
+                          APP_TIMER_TICKS(DOUBLE_CLICK_WINDOW_MS), NULL);
+}
+
+static void click_timeout_handler(void * p_context)
+{
+    (void)p_context;
+
+    m_wait_second_click = false;
+
+    if (!pin_is_pressed_raw() && m_single_click_handler != NULL) {
+        m_single_click_handler();
+    }
 }
 
 static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
@@ -64,18 +66,9 @@ static void gpiote_handler(nrfx_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
     (void)pin;
     (void)action;
 
-    uint32_t now = app_timer_cnt_get();
-    if (m_have_edge &&
-        app_timer_cnt_diff_compute(now, m_last_edge_cnt) <
-            APP_TIMER_TICKS(BUTTON_DEBOUNCE_MS)) {
-        return;
-    }
-    m_last_edge_cnt = now;
-    m_have_edge     = true;
-
-    if (pin_is_pressed_raw()) {
-        on_press_edge();
-    }
+    (void)app_timer_stop(m_debounce_timer);
+    (void)app_timer_start(m_debounce_timer,
+                          APP_TIMER_TICKS(BUTTON_DEBOUNCE_MS), NULL);
 }
 
 void button_init(void)
@@ -90,24 +83,14 @@ void button_init(void)
     APP_ERROR_CHECK(nrfx_gpiote_in_init(BUTTON_PIN, &cfg, gpiote_handler));
     nrfx_gpiote_in_event_enable(BUTTON_PIN, true);
 
+    APP_ERROR_CHECK(app_timer_create(&m_debounce_timer,
+                                     APP_TIMER_MODE_SINGLE_SHOT,
+                                     debounce_timeout_handler));
     APP_ERROR_CHECK(app_timer_create(&m_click_timer,
                                      APP_TIMER_MODE_SINGLE_SHOT,
                                      click_timeout_handler));
 
     m_pressed = pin_is_pressed_raw();
-}
-
-void button_update(void)
-{
-    if (pin_is_pressed_raw() == m_pressed) {
-        m_unstable_ticks = 0;
-        return;
-    }
-
-    if (++m_unstable_ticks >= BUTTON_DEBOUNCE_TICKS) {
-        m_pressed        = pin_is_pressed_raw();
-        m_unstable_ticks = 0;
-    }
 }
 
 bool button_is_pressed(void)

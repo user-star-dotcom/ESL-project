@@ -1,0 +1,16 @@
+# Build outputs and temporary files
+_build/
+*.o
+*.d
+*.i
+*.s
+*.hex
+*.dfu
+*.out
+*.map
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
