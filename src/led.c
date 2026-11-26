@@ -10,8 +10,6 @@ static nrfx_pwm_t m_pwm = NRFX_PWM_INSTANCE(LED_PWM_INSTANCE);
 
 static uint16_t m_compare[NRF_PWM_CHANNEL_COUNT];
 
-//from ws4 below
-
 static nrf_pwm_sequence_t const m_seq = {//d
     .values.p_common = m_compare,
     .length          = NRF_PWM_VALUES_LENGTH(m_compare),
@@ -51,8 +49,6 @@ void led_all_off(void)//d
         m_compare[i] = 0;
     }
 }
-
-//fromws4 above
 
 //led.c +
 void led_set_rgb(uint8_t r, uint8_t g, uint8_t b)
