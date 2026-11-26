@@ -10,8 +10,6 @@ typedef void (* button_single_click_handler_t)(void);
 
 void button_init(void);
 
-void button_update(void);
-
 bool button_is_pressed(void);
 
 void button_set_double_click_handler(button_double_click_handler_t handler);
