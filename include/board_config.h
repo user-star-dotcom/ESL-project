@@ -22,14 +22,13 @@
 #define BLINK_SLOW_HALF_TICKS   50
 #define BLINK_FAST_HALF_TICKS   10
  
-/* Плавное изменение значения при удержании кнопки */
+// Плавное изменение значения при удержании кнопки
 #define HSV_RAMP_TICKS          10   /* один шаг раз в 100 мс */
 #define HSV_HUE_STEP            1.0f /* 1 градус за шаг*/
 #define HSV_SV_STEP             1.0f /* 1 процент за шаг*/
  
-/* Начальный Hue: последние две цифры Device ID как проценты */
 #define DEVICE_ID_STRING        "7206"
-#define DEVICE_ID_HUE_PCT       6    /* 06 -> 6 % -> 360 * 0.06 = 21.6 гр */
+#define DEVICE_ID_HUE_PCT       6 /* 06 -> 6 % -> 360 * 0.06 = 21.6 гр */
  
 #define BUTTON_DEBOUNCE_MS      30 
 #define BUTTON_DEBOUNCE_TICKS   3
